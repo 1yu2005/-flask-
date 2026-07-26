@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}星辰科技 - 官方网站{% endblock %}
+
+{% block content %}
+<!-- 公司简介 -->
+<div class="card" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: #fff; padding: 50px 40px;">
+    <h1 style="font-size: 32px; margin-bottom: 16px;">关于星辰科技</h1>
+    <p style="font-size: 16px; line-height: 1.8; max-width: 800px; color: #ccc;">
+        星辰科技（Starnet Technology）成立于 2020 年，是一家专注于人工智能与云计算领域的创新型科技公司。
+        我们致力于为企业提供领先的 AI 解决方案，涵盖自然语言处理、计算机视觉、大数据分析等前沿方向。
+        公司总部位于深圳，在北京、上海、杭州设有研发中心，团队规模超过 500 人，其中研发人员占比 70% 以上。
+    </p>
+    <div style="display: flex; gap: 40px; margin-top: 30px;">
+        <div>
+            <div style="font-size: 36px; font-weight: bold; color: #00d4ff;">500+</div>
+            <div style="color: #999; font-size: 14px;">团队成员</div>
+        </div>
+        <div>
+            <div style="font-size: 36px; font-weight: bold; color: #00d4ff;">200+</div>
+            <div style="color: #999; font-size: 14px;">企业客户</div>
+        </div>
+        <div>
+            <div style="font-size: 36px; font-weight: bold; color: #00d4ff;">50+</div>
+            <div style="color: #999; font-size: 14px;">技术专利</div>
+        </div>
+    </div>
+</div>
+
+<!-- 最新新闻 -->
+<h2 style="font-size: 22px; margin: 30px 0 16px 0; padding-left: 4px; border-left: 4px solid #00d4ff;">最新动态</h2>
+{% if news_list %}
+    {% for news in news_list %}
+    <div class="card" style="cursor: pointer;" onclick="location.href='/news/{{ news.id }}'">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="font-size: 18px; color: #1a1a2e;">{{ news.title }}</h3>
+            <span class="badge">{{ news.category }}</span>
+        </div>
+        <p style="color: #666; margin-top: 8px; line-height: 1.6;">
+            {{ news.content[:120] }}{% if news.content|length > 120 %}...{% endif %}
+        </p>
+        <div class="text-muted mt-10">{{ news.publish_time }}</div>
+    </div>
+    {% endfor %}
+    <a href="/news" class="btn btn-primary mt-20">查看全部新闻 &rarr;</a>
+{% else %}
+    <div class="card" style="text-align: center; padding: 60px; color: #999;">
+        <p style="font-size: 16px;">暂无新闻动态</p>
+    </div>
+{% endif %}
+{% endblock %}

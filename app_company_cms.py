@@ -1,107 +1,330 @@
 '''
-技术公司官方网站与内容管理系统
-接口：
-1. 前台展示接口：
-   - GET /：展示公司首页（公司简介、最新 3 条新闻）。
-   - GET /api/news：获取新闻列表（支持按发布时间倒序）。
-   - GET /api/news/<id>：获取新闻详情。
-2. 后台管理接口（需管理员权限）：
-   - 管理员账号预设：admin / admin123。
-   - POST /manager/news-publish：发布新闻（字段：title, content, category）。
-   - DELETE /manager/news-delete/<id>：删除指定新闻。
-   - 必须实现登录校验装饰器，非 admin 角色访问后台接口返回 403 Forbidden。
+技术公司官方网站与内容管理系统 (CMS)
+=========================================
+基于 Flask + SQLite 的完整 CMS 系统。
+
+前端页面：
+  - GET  /           公司首页（公司简介 + 最新3条新闻）
+  - GET  /news       新闻列表页（全部新闻，按时间倒序）
+  - GET  /news/<id>  新闻详情页
+  - GET  /login      管理员登录页面
+  - GET  /manager    管理后台（需登录）
+
+API 接口：
+  前台（公开）：
+    - GET  /api/news       获取新闻列表（按发布时间倒序）
+    - GET  /api/news/<id>  获取新闻详情
+  后台（需管理员权限）：
+    - POST   /auth/login              管理员登录
+    - POST   /auth/logout             管理员登出
+    - POST   /manager/news-publish    发布新闻
+    - DELETE /manager/news-delete/<id> 删除新闻
+
+数据持久化：SQLite (cms.db)
+管理员账号预设：admin / admin123
 '''
 
+import sqlite3
+import os
 from datetime import datetime
 import secrets
-from flask import Flask, request, jsonify, session
+from flask import Flask, request, jsonify, session, render_template
 from functools import wraps
+from werkzeug.security import generate_password_hash, check_password_hash
 
-app = Flask(__name__)  # 创建Flask应用实例 作用：后续启动应用时使用
-app.secret_key = secrets.token_hex(16)  # 生成随机密钥 作用：加密会话数据
-app.json.ensure_ascii = False # 使JSON响应中的中文字符不被转义，正常显示
+# ==================== 应用初始化 ====================
+app = Flask(__name__)
+app.secret_key = secrets.token_hex(16)  # Session 加密密钥
+app.json.ensure_ascii = False           # JSON 响应中文不转义
 
-# 模拟数据库
-posts_db = {}  # 全局变量，用于存储新闻数据  字典中key为新闻id，value为新闻信息字典(字典嵌套字典)
-next_post_id = 1  # 用于生成唯一新闻ID的计数器  初始值为1
+# 数据库文件路径（与脚本同目录）
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, 'cms.db')
 
-#后台-管理员账号预设  登录
-@app.route('/manager/login', methods=['POST'])
-def login_temp():         #后台管理员临时登录，模拟登录
-    session['manager_name'] = 'admin'   
-    session['role'] = 'manager'
-    return jsonify({"code":200,"msg":"后台模拟登录成功(manager:admin)"})
+
+# ==================== 数据库工具函数 ====================
+
+def get_db():
+    """获取数据库连接（自动开启外键约束）"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row  # 让查询结果支持按列名访问
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+def init_db():
+    """初始化数据库：创建 users 表和 news 表，并预设管理员账号"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # 用户表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'admin',
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        )
+    ''')
+
+    # 新闻表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS news (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            category TEXT NOT NULL,
+            publish_time TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        )
+    ''')
+
+    # 预设管理员账号（如不存在则创建）
+    existing = cursor.execute(
+        "SELECT id FROM users WHERE username = ?", ('admin',)
+    ).fetchone()
+
+    if not existing:
+        password_hash = generate_password_hash('admin123')
+        cursor.execute(
+            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+            ('admin', password_hash, 'admin')
+        )
+
+    conn.commit()
+    conn.close()
+
+
+# 应用启动时执行初始化
+init_db()
+
+
+# ==================== 登录校验装饰器 ====================
 
 def login_required(f):
+    """
+    管理员登录校验装饰器。
+    检查 session 中是否有 role='admin'，否则返回 403。
+    """
     @wraps(f)
-    def decorated(*args,**kwargs):
-        if 'manager_name' not in session or session['role'] != 'manager':
-            return jsonify({"code":403,"msg":"未登录或角色错误"}),403
-        return f(*args,**kwargs)
+    def decorated(*args, **kwargs):
+        if session.get('role') != 'admin':
+            return jsonify({"code": 403, "msg": "权限不足，请先以管理员身份登录"}), 403
+        return f(*args, **kwargs)
     return decorated
 
-# 后台-发布新闻
+
+# ==================== 身份认证接口 ====================
+
+@app.route('/auth/login', methods=['POST'])
+def auth_login():
+    """管理员登录接口"""
+    data = request.get_json()
+    if not data:
+        return jsonify({"code": 400, "msg": "请提供 JSON 格式的登录数据"}), 400
+
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+
+    if not username or not password:
+        return jsonify({"code": 400, "msg": "用户名和密码不能为空"}), 400
+
+    conn = get_db()
+    user = conn.execute(
+        "SELECT * FROM users WHERE username = ?", (username,)
+    ).fetchone()
+    conn.close()
+
+    if not user:
+        return jsonify({"code": 401, "msg": "用户名或密码错误"}), 401
+
+    if not check_password_hash(user['password_hash'], password):
+        return jsonify({"code": 401, "msg": "用户名或密码错误"}), 401
+
+    # 登录成功：写入 session
+    session['user_id'] = user['id']
+    session['username'] = user['username']
+    session['role'] = user['role']
+
+    return jsonify({
+        "code": 200,
+        "msg": "登录成功",
+        "data": {"username": user['username'], "role": user['role']}
+    })
+
+
+@app.route('/auth/logout', methods=['POST'])
+def auth_logout():
+    """管理员登出接口"""
+    session.clear()
+    return jsonify({"code": 200, "msg": "已退出登录"})
+
+
+# ==================== 前台页面路由（公开访问） ====================
+
+@app.route('/')
+def page_index():
+    """公司首页：公司简介 + 最新 3 条新闻"""
+    conn = get_db()
+    news_list = conn.execute(
+        "SELECT * FROM news ORDER BY publish_time DESC LIMIT 3"
+    ).fetchall()
+    conn.close()
+
+    # 将 Row 对象转为字典列表，方便模板使用
+    news_dicts = [dict(row) for row in news_list]
+    return render_template('index.html', news_list=news_dicts)
+
+
+@app.route('/news')
+def page_news_list():
+    """新闻列表页：全部新闻，按发布时间倒序"""
+    conn = get_db()
+    news_list = conn.execute(
+        "SELECT * FROM news ORDER BY publish_time DESC"
+    ).fetchall()
+    conn.close()
+
+    news_dicts = [dict(row) for row in news_list]
+    return render_template('news_list.html', news_list=news_dicts)
+
+
+@app.route('/news/<int:news_id>')
+def page_news_detail(news_id):
+    """新闻详情页"""
+    conn = get_db()
+    news = conn.execute(
+        "SELECT * FROM news WHERE id = ?", (news_id,)
+    ).fetchone()
+    conn.close()
+
+    if not news:
+        return render_template('news_detail.html', news=None, error="新闻不存在"), 404
+
+    return render_template('news_detail.html', news=dict(news))
+
+
+@app.route('/login')
+def page_login():
+    """管理员登录页面"""
+    # 已登录则跳转到管理后台
+    if session.get('role') == 'admin':
+        return render_template('manager.html')
+    return render_template('login.html')
+
+
+@app.route('/manager')
+def page_manager():
+    """管理后台页面（需登录）"""
+    if session.get('role') != 'admin':
+        return render_template('login.html')  # 未登录则显示登录页
+    return render_template('manager.html')
+
+
+# ==================== 前台 API 接口（公开访问） ====================
+
+@app.route('/api/news', methods=['GET'])
+def api_news_list():
+    """获取新闻列表（按发布时间倒序）"""
+    conn = get_db()
+    news_list = conn.execute(
+        "SELECT * FROM news ORDER BY publish_time DESC"
+    ).fetchall()
+    conn.close()
+
+    return jsonify({
+        "code": 200,
+        "msg": "获取成功",
+        "data": [dict(row) for row in news_list]
+    })
+
+
+@app.route('/api/news/<int:news_id>', methods=['GET'])
+def api_news_detail(news_id):
+    """获取新闻详情"""
+    conn = get_db()
+    news = conn.execute(
+        "SELECT * FROM news WHERE id = ?", (news_id,)
+    ).fetchone()
+    conn.close()
+
+    if not news:
+        return jsonify({"code": 404, "msg": "新闻不存在"}), 404
+
+    return jsonify({
+        "code": 200,
+        "msg": "获取成功",
+        "data": dict(news)
+    })
+
+
+# ==================== 后台管理 API 接口（需管理员权限） ====================
+
 @app.route('/manager/news-publish', methods=['POST'])
 @login_required
-def publish_news():
-    global next_post_id  # 新闻id
-    data = request.get_json()   # 获取POST请求体JSON数据  type(data) = dict
+def api_publish_news():
+    """发布新闻"""
+    data = request.get_json()
+    if not data:
+        return jsonify({"code": 400, "msg": "请提供 JSON 格式数据"}), 400
 
-    # 校验请求体中的数据是否完整
-    if 'title' not in data or 'content' not in data or 'category' not in data:
-        return jsonify({"code":400,"msg":"请求体数据不完整,title,content,category任一字段都不能为空"}),400
-    
-    # 构建发布新闻信息字典
-    publish_info = {
-        'id': next_post_id,
-        'title': data['title'],
-        'content': data['content'],
-        'category': data['category'],
-        'publish_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    }
-    posts_db[next_post_id] = publish_info  # 存储到数据库中
-    next_post_id += 1  # 新闻id自增
-    return jsonify({"code":200,"msg":"新闻发布成功","id":next_post_id,"info":publish_info})
+    title = data.get('title', '').strip()
+    content = data.get('content', '').strip()
+    category = data.get('category', '').strip()
 
-# 后台-删除新闻
-@app.route('/manager/news-delete/<int:id>', methods=['DELETE'])
+    # 字段完整性校验
+    if not title or not content or not category:
+        return jsonify({"code": 400, "msg": "title、content、category 均不能为空"}), 400
+
+    publish_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    conn = get_db()
+    cursor = conn.execute(
+        "INSERT INTO news (title, content, category, publish_time) VALUES (?, ?, ?, ?)",
+        (title, content, category, publish_time)
+    )
+    news_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "code": 200,
+        "msg": "新闻发布成功",
+        "data": {
+            "id": news_id,
+            "title": title,
+            "content": content,
+            "category": category,
+            "publish_time": publish_time
+        }
+    })
+
+
+@app.route('/manager/news-delete/<int:news_id>', methods=['DELETE'])
 @login_required
-def delete_news(id):
-    # 校验要删除的新闻id是否存在
-    if id not in posts_db:
-        return jsonify({"code":404,"msg":"该新闻不存在"}),404
+def api_delete_news(news_id):
+    """删除指定新闻"""
+    conn = get_db()
+    news = conn.execute(
+        "SELECT id FROM news WHERE id = ?", (news_id,)
+    ).fetchone()
 
-    # 删除新闻
-    del posts_db[id]  # del 删除字典中的指定键值对;del 是一个语句，用于删除变量或字典中的键值对或列表中的元素等
-    return jsonify({"code":200,"msg":f"新闻id为{id}的新闻删除成功"})
+    if not news:
+        conn.close()
+        return jsonify({"code": 404, "msg": "新闻不存在"}), 404
 
-# 前台-展示公司首页（公司简介、最新 3 条新闻）
-@app.route('/', methods=['GET'])
-@login_required
-def index():
-    # 从数据库中获取最新 3 条新闻
-    latest_news = sorted(posts_db.values(), key=lambda x: x['publish_time'], reverse=True)[:3]
-    
-    return jsonify({"code":200,"msg":"展示公司首页(公司简介、最新 3 条新闻)","data":latest_news})
+    conn.execute("DELETE FROM news WHERE id = ?", (news_id,))
+    conn.commit()
+    conn.close()
 
-# 前台-获取新闻列表（支持按发布时间倒序）
-@app.route('/api/news', methods=['GET'])
-@login_required
-def get_news_list():
-    # 从数据库中获取所有新闻
-    news_list = sorted(posts_db.values(), key=lambda x: x['publish_time'], reverse=True)
-    return jsonify({"code":200,"msg":"获取新闻列表成功","data":news_list})
+    return jsonify({"code": 200, "msg": f"新闻 (ID: {news_id}) 已删除"})
 
-# 前台-获取单篇新闻详情
-@app.route('/api/news/<int:id>', methods=['GET'])
-@login_required
-def get_news_detail(id):
-    # 校验要获取的新闻id是否存在
-    if id not in posts_db:
-        return jsonify({"code":404,"msg":"该新闻不存在"}),404
-        
-    # 从数据库中获取指定新闻详情
-    return jsonify({"code":200,"msg":"获取新闻详情成功","data":posts_db[id]})
+
+# ==================== 启动应用 ====================
 
 if __name__ == '__main__':
-    app.run(host='127.0.0.1',port=5000, debug=True)  # 启动Flask应用 
+    print(f"数据库路径: {DB_PATH}")
+    print("访问地址: http://127.0.0.1:5000")
+    print("管理后台: http://127.0.0.1:5000/manager")
+    print("管理员账号: admin / admin123")
+    app.run(host='127.0.0.1', port=5000, debug=True)

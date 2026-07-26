@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}星辰科技 - 官方网站{% endblock %}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: #f5f7fa; color: #333; min-height: 100vh; display: flex; flex-direction: column; }
+        /* 导航栏 */
+        .navbar { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: #fff; padding: 0 40px; display: flex; align-items: center; justify-content: space-between; height: 60px; box-shadow: 0 2px 10px rgba(0,0,0,0.15); position: sticky; top: 0; z-index: 100; }
+        .navbar .logo { font-size: 22px; font-weight: bold; letter-spacing: 2px; color: #00d4ff; text-decoration: none; }
+        .navbar .nav-links { display: flex; gap: 24px; align-items: center; list-style: none; }
+        .navbar .nav-links a { color: #ccc; text-decoration: none; font-size: 15px; transition: color 0.3s; }
+        .navbar .nav-links a:hover, .navbar .nav-links a.active { color: #00d4ff; }
+        .navbar .btn-logout { background: #e74c3c; color: #fff; border: none; padding: 7px 18px; border-radius: 4px; cursor: pointer; font-size: 13px; transition: background 0.3s; }
+        .navbar .btn-logout:hover { background: #c0392b; }
+        /* 主体 */
+        .container { max-width: 1200px; margin: 0 auto; padding: 30px 20px; flex: 1; width: 100%; }
+        /* 页脚 */
+        .footer { background: #1a1a2e; color: #888; text-align: center; padding: 20px; font-size: 13px; margin-top: auto; }
+        /* 通用 */
+        .card { background: #fff; border-radius: 8px; padding: 24px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .btn { display: inline-block; padding: 8px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; border: none; transition: all 0.3s; text-decoration: none; }
+        .btn-primary { background: #00d4ff; color: #1a1a2e; font-weight: bold; }
+        .btn-primary:hover { background: #00b8e6; }
+        .btn-danger { background: #e74c3c; color: #fff; }
+        .btn-danger:hover { background: #c0392b; }
+        .btn-sm { padding: 5px 14px; font-size: 12px; }
+        .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; background: #00d4ff; color: #1a1a2e; }
+        .alert { padding: 12px 16px; border-radius: 4px; margin-bottom: 16px; font-size: 14px; }
+        .alert-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; display: none; }
+        .alert-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; display: none; }
+        .text-muted { color: #999; font-size: 13px; }
+        .mt-10 { margin-top: 10px; }
+        .mt-20 { margin-top: 20px; }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar">
+        <a href="/" class="logo">星辰科技 STARNET</a>
+        <ul class="nav-links">
+            <li><a href="/" class="{% if request.path == '/' %}active{% endif %}">首页</a></li>
+            <li><a href="/news" class="{% if request.path == '/news' %}active{% endif %}">新闻中心</a></li>
+            {% if session.get('role') == 'admin' %}
+            <li><a href="/manager" class="{% if request.path == '/manager' %}active{% endif %}">管理后台</a></li>
+            <li><button class="btn-logout" onclick="logout()">退出登录</button></li>
+            {% else %}
+            <li><a href="/login" class="{% if request.path == '/login' %}active{% endif %}">管理员登录</a></li>
+            {% endif %}
+        </ul>
+    </nav>
+
+    <!-- 主体内容 -->
+    <div class="container">
+        {% block content %}{% endblock %}
+    </div>
+
+    <!-- 页脚 -->
+    <footer class="footer">
+        &copy; 2026 星辰科技（Starnet Technology）. All Rights Reserved.
+    </footer>
+
+    <script>
+        function logout() {
+            fetch('/auth/logout', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.code === 200) window.location.href = '/';
+                });
+        }
+    </script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

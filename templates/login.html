@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}管理员登录 - 星辰科技{% endblock %}
+
+{% block content %}
+<div style="max-width: 420px; margin: 60px auto;">
+    <div class="card" style="padding: 40px;">
+        <h2 style="text-align: center; margin-bottom: 30px; color: #1a1a2e;">管理员登录</h2>
+
+        <div id="alertSuccess" class="alert alert-success"></div>
+        <div id="alertError" class="alert alert-error"></div>
+
+        <form id="loginForm" onsubmit="handleLogin(event)">
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 6px; font-size: 14px; color: #555;">用户名</label>
+                <input type="text" id="username" required
+                    style="width: 100%; padding: 10px 14px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; outline: none; transition: border 0.3s;"
+                    onfocus="this.style.borderColor='#00d4ff'" onblur="this.style.borderColor='#ddd'">
+            </div>
+            <div style="margin-bottom: 24px;">
+                <label style="display: block; margin-bottom: 6px; font-size: 14px; color: #555;">密码</label>
+                <input type="password" id="password" required
+                    style="width: 100%; padding: 10px 14px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; outline: none; transition: border 0.3s;"
+                    onfocus="this.style.borderColor='#00d4ff'" onblur="this.style.borderColor='#ddd'">
+            </div>
+            <button type="submit" class="btn btn-primary" style="width: 100%; padding: 12px; font-size: 16px;">登 录</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function showAlert(type, msg) {
+    const el = document.getElementById(type === 'success' ? 'alertSuccess' : 'alertError');
+    el.textContent = msg;
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 3000);
+}
+
+function handleLogin(e) {
+    e.preventDefault();
+    const username = document.getElementById('username').value;
+    const password = document.getElementById('password').value;
+
+    fetch('/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.code === 200) {
+            showAlert('success', '登录成功，正在跳转...');
+            setTimeout(() => { window.location.href = '/manager'; }, 500);
+        } else {
+            showAlert('error', data.msg || '登录失败');
+        }
+    });
+}
+</script>
+{% endblock %}

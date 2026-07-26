@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}新闻中心 - 星辰科技{% endblock %}
+
+{% block content %}
+<h2 style="font-size: 22px; margin-bottom: 24px; padding-left: 4px; border-left: 4px solid #00d4ff;">新闻中心</h2>
+
+{% if news_list %}
+    {% for news in news_list %}
+    <div class="card" style="cursor: pointer;" onclick="location.href='/news/{{ news.id }}'">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="font-size: 18px; color: #1a1a2e;">{{ news.title }}</h3>
+            <span class="badge">{{ news.category }}</span>
+        </div>
+        <p style="color: #666; margin-top: 8px; line-height: 1.6;">
+            {{ news.content[:150] }}{% if news.content|length > 150 %}...{% endif %}
+        </p>
+        <div class="text-muted mt-10">{{ news.publish_time }}</div>
+    </div>
+    {% endfor %}
+{% else %}
+    <div class="card" style="text-align: center; padding: 60px; color: #999;">
+        <p style="font-size: 16px;">暂无新闻</p>
+    </div>
+{% endif %}
+{% endblock %}

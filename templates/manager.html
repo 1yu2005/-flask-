@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}管理后台 - 星辰科技 CMS{% endblock %}
+
+{% block content %}
+<h1 style="font-size: 24px; margin-bottom: 24px; color: #1a1a2e;">内容管理系统 - 管理后台</h1>
+
+<div id="alertSuccess" class="alert alert-success"></div>
+<div id="alertError" class="alert alert-error"></div>
+
+<!-- 发布新闻 -->
+<div class="card">
+    <h3 style="margin-bottom: 20px; font-size: 18px;">发布新闻</h3>
+    <form id="publishForm" onsubmit="handlePublish(event)">
+        <div style="display: grid; grid-template-columns: 1fr 200px; gap: 16px; margin-bottom: 16px;">
+            <div>
+                <label style="display: block; margin-bottom: 6px; font-size: 14px; color: #555;">标题</label>
+                <input type="text" id="newsTitle" required
+                    style="width: 100%; padding: 10px 14px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+            </div>
+            <div>
+                <label style="display: block; margin-bottom: 6px; font-size: 14px; color: #555;">分类</label>
+                <select id="newsCategory"
+                    style="width: 100%; padding: 10px 14px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                    <option value="公司新闻">公司新闻</option>
+                    <option value="产品动态">产品动态</option>
+                    <option value="行业资讯">行业资讯</option>
+                    <option value="技术分享">技术分享</option>
+                </select>
+            </div>
+        </div>
+        <div style="margin-bottom: 16px;">
+            <label style="display: block; margin-bottom: 6px; font-size: 14px; color: #555;">内容</label>
+            <textarea id="newsContent" required rows="5"
+                style="width: 100%; padding: 10px 14px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; resize: vertical; font-family: inherit;"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">发布新闻</button>
+    </form>
+</div>
+
+<!-- 新闻列表 -->
+<div class="card">
+    <h3 style="margin-bottom: 16px; font-size: 18px;">新闻管理列表</h3>
+    <div id="newsTableContainer">
+        <p style="color: #999; text-align: center; padding: 40px;">加载中...</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function showAlert(type, msg) {
+    const el = document.getElementById(type === 'success' ? 'alertSuccess' : 'alertError');
+    el.textContent = msg;
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 3000);
+}
+
+function loadNewsList() {
+    fetch('/api/news')
+        .then(r => r.json())
+        .then(data => {
+            const container = document.getElementById('newsTableContainer');
+            if (!data.data || data.data.length === 0) {
+                container.innerHTML = '<p style="color:#999;text-align:center;padding:40px;">暂无新闻</p>';
+                return;
+            }
+            let html = '<table style="width:100%;border-collapse:collapse;">';
+            html += '<thead><tr style="background:#f5f7fa;text-align:left;">';
+            html += '<th style="padding:10px 14px;border-bottom:2px solid #eee;">ID</th>';
+            html += '<th style="padding:10px 14px;border-bottom:2px solid #eee;">标题</th>';
+            html += '<th style="padding:10px 14px;border-bottom:2px solid #eee;">分类</th>';
+            html += '<th style="padding:10px 14px;border-bottom:2px solid #eee;">发布时间</th>';
+            html += '<th style="padding:10px 14px;border-bottom:2px solid #eee;text-align:center;">操作</th>';
+            html += '</tr></thead><tbody>';
+
+            data.data.forEach(news => {
+                html += '<tr style="border-bottom:1px solid #f0f0f0;">';
+                html += `<td style="padding:10px 14px;">${news.id}</td>`;
+                html += `<td style="padding:10px 14px;"><a href="/news/${news.id}" style="color:#1a1a2e;text-decoration:none;">${escapeHtml(news.title)}</a></td>`;
+                html += `<td style="padding:10px 14px;"><span class="badge">${escapeHtml(news.category)}</span></td>`;
+                html += `<td style="padding:10px 14px;" class="text-muted">${news.publish_time}</td>`;
+                html += `<td style="padding:10px 14px;text-align:center;">`;
+                html += `<button class="btn btn-danger btn-sm" onclick="deleteNews(${news.id})">删除</button>`;
+                html += '</td></tr>';
+            });
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        })
+        .catch(() => {
+            document.getElementById('newsTableContainer').innerHTML =
+                '<p style="color:#e74c3c;text-align:center;padding:40px;">加载失败，请检查是否已登录</p>';
+        });
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function handlePublish(e) {
+    e.preventDefault();
+    const title = document.getElementById('newsTitle').value.trim();
+    const content = document.getElementById('newsContent').value.trim();
+    const category = document.getElementById('newsCategory').value;
+
+    fetch('/manager/news-publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, content, category })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.code === 200) {
+            showAlert('success', '新闻发布成功');
+            document.getElementById('newsTitle').value = '';
+            document.getElementById('newsContent').value = '';
+            loadNewsList();
+        } else {
+            showAlert('error', data.msg || '发布失败');
+        }
+    });
+}
+
+function deleteNews(id) {
+    if (!confirm('确定要删除该新闻吗？此操作不可恢复。')) return;
+
+    fetch(`/manager/news-delete/${id}`, { method: 'DELETE' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.code === 200) {
+                showAlert('success', '删除成功');
+                loadNewsList();
+            } else {
+                showAlert('error', data.msg || '删除失败');
+            }
+        });
+}
+
+// 页面加载时获取新闻列表
+loadNewsList();
+</script>
+{% endblock %}
